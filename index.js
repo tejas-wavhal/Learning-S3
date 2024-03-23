@@ -5,6 +5,9 @@ const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const { PutObjectCommand } = require('@aws-sdk/client-s3');
 const { ListObjectsV2Command } = require('@aws-sdk/client-s3');
 const { GetObjectCommand } = require('@aws-sdk/client-s3');
+const multer = require('multer'); // npm install multer
+const fetch = require('node-fetch-commonjs'); // npm install node-fetch
+const upload = multer({ storage: multer.memoryStorage() });
 
 const app = express();
 const port = 3000;
@@ -35,6 +38,42 @@ app.get('/upload-url', async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Error generating upload URL' });
+  }
+});
+
+app.post('/upload-image', upload.single('image'), async (req, res) => {
+  const { file } = req;
+  if (!file) {
+    return res.status(400).json({ error: 'No file uploaded.' });
+  }
+
+  const key = `uploads/${Date.now()}_${file.originalname}`;
+  const command = new PutObjectCommand({
+    Bucket: process.env.BUCKET_NAME,
+    Key: key,
+    ContentType: file.mimetype,
+  });
+
+  try {
+    const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+    
+    // Use the presigned URL to upload the file
+    const putResponse = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': file.mimetype,
+      },
+      body: file.buffer,
+    });
+
+    if (!putResponse.ok) {
+      throw new Error('Failed to upload file to S3');
+    }
+
+    res.json({ message: 'File uploaded successfully', key });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error uploading file' });
   }
 });
 
